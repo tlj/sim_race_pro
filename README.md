@@ -1,211 +1,111 @@
-# Dynamic FFB – SIM Race PRO (Windows)
+# Sim Race Pro - Hybrid Force Feedback Steering Wheel
 
-This guide takes you from a fresh Windows install to running the simulator with **two Arduinos** talking to each other and a **Python** process that emulates a **virtual Xbox controller**.
+Welcome to **Sim Race Pro**! This project turns a DIY Arduino-based steering wheel into a high-end Force Feedback controller with OLED Dashboard and Telemetry for F1 23/24/25 and Assetto Corsa Competizione.
 
-> **Tested on Windows 10/11.**  
-> Python 3.11/3.12 recommended.
-
----
-
-## 1) Install Python (Windows)
-
-1. Download the **Windows x86-64 executable installer** for Python 3.11 or 3.12.
-2. Run the installer and **check**:
-   - **Add Python to PATH**
-   - *(Optional)* Install for all users
-3. Verify in **PowerShell**:
-   ```powershell
-   python --version
-   pip --version
-   ```
-   If not found, try `py --version`, then reopen the terminal.
+## 🚀 Features
+- **Hybrid Force Feedback**: Real simulator physics (Speed, G-Force, Curbs) + Backup pedal resistance.
+- **Active Pedals**: Vibration on Accelerator (Curbs) and Brake (ABS/Lockup).
+- **Dashboard**: OLED screen showing Gear, Speed, RPM, and Lap Times.
+- **Smart LEDs**: RPM Shift lights in-game, Throttle indicator in menus.
 
 ---
 
-## 2) Install ViGEmBus (virtual gamepad driver)
+## 📦 Step 1: Install Software
 
-The Python script uses **vgamepad**, which requires the **ViGEmBus** driver to create a virtual Xbox controller.
+### 1. Install Python
+1. Download Python (3.10 or newer) from [python.org](https://www.python.org/downloads/).
+2. **IMPORTANT**: During installation, check the box **"Add Python to PATH"**.
+3. Finish installation.
 
-- Install **ViGEmBus**, then **restart Windows**.
-- After reboot, when the Python script is running you should see an Xbox controller in **Windows Game Controllers**.
+### 2. Install ViGEmBus Driver
+This driver allows the script to create a virtual Xbox 360 controller.
+1. Download the latest `ViGEmBus` installer from [GitHub](https://github.com/ViGEm/ViGEmBus/releases).
+2. Run the installer and restart your computer if asked.
 
-> Without ViGEmBus, `vgamepad` will fail to initialize.
-
----
-
-## 3) Project Layout
-
-Place these files in the same folder:
-
-- `sim_race_pro_script.py` — main runner (serial I/O, virtual gamepad bridge)
-- `telemetry_sources.py` — placeholder for future telemetry integration
-- `sim_race_pro_wheel_script.ino` — Arduino firmware for the **wheel**
-- `sim_race_pro_box_script.ino` — Arduino firmware for the **box**
+### 3. Install Arduino IDE
+Download and install the [Arduino IDE](https://www.arduino.cc/en/software).
 
 ---
 
-## 4) Install Python libraries
+## 🛠️ Step 2: Setup Project
 
-Open **PowerShell** in the project folder and run:
-
+### 1. Install Python Libraries
+Open a terminal (Command Prompt or PowerShell) in this folder and run:
 ```powershell
 pip install pyserial vgamepad keyboard pyaccsharedmemory
 ```
 
-### 4.1 Verify packages (already installed?)
-```powershell
-pip show pyserial
-pip show vgamepad
-pip show keyboard
-pip show pyaccsharedmemory
-```
-If any shows **WARNING: Package(s) not found**, install it with `pip install <name>`.
+### 2. Upload Arduino Code
+You have two Arduino Nano boards. You must upload the correct code to each one using **Arduino IDE**.
+
+#### A. The "Box" Arduino (Main Brain)
+This Arduino connects to the PC and controls the Motor and Pedals.
+1. Open `sim_race_pro_box_script/sim_race_pro_box_script.ino` in Arduino IDE.
+2. Go to **Tools > Board** and select **Arduino Nano** (Processor: ATmega328P or Old Bootloader).
+3. Select the correct **Port**.
+4. Click **Upload** (Right Arrow Icon).
+5. **Note the COM Port number** (e.g., COM3). You will need this later.
+
+#### B. The "Wheel" Arduino (Dashboard)
+This Arduino is inside the steering wheel.
+1. Open `sim_race_pro_wheel_script/sim_race_pro_wheel_script.ino`.
+2. Select the correct **Port** (it will be different from the Box).
+3. Click **Upload**.
+
+*Note: If Arduino IDE complains about missing libraries, go to **Tools > Manage Libraries** and install:*
+*   `Adafruit SSD1306`
+*   `Adafruit GFX`
+*   `Encoder`
 
 ---
 
-## 5) Install Arduino libraries
+## ⚙️ Step 3: Configuration
 
-Open **Arduino IDE** → **Tools → Manage Libraries…** and install:
-
-- **Encoder** (by Paul Stoffregen) — required for rotary encoders
-
-> If your sketches need extras (e.g., `Bounce2`, `Keypad`, OLED display libs), the IDE will show missing libraries during compile. Install them from **Manage Libraries**.
-
----
-
-## 6) Upload the two Arduino sketches
-
-You have **two separate Arduinos**. Upload **each** sketch to the correct board.
-
-### 6.1 Prepare
-1. Connect the **first Arduino** (for the **wheel**) via USB.
-2. In Arduino IDE:
-   - **Tools → Board**: select the correct board (e.g., Arduino Nano)
-   - **Tools → Port**: select the matching COM port
-
-### 6.2 Upload Wheel firmware
-1. Open `sim_race_pro_wheel_script.ino`
-2. **Sketch → Upload** (Ctrl+U)
-3. Wait for **“Upload complete.”**
-
-### 6.3 Upload Box/Dashboard firmware
-1. Disconnect the first Arduino, connect the **second Arduino** (box)
-2. **Tools → Port**: select the **new** COM port
-3. Open `sim_race_pro_box_script.ino`
-4. **Sketch → Upload**
-5. Wait for **“Upload complete.”**
-
-> **Tip:** Note which COM port belongs to the **box** (you’ll set it in Python).
+1. Open `sim_race_pro_script.py` with a text editor (Notepad, VS Code).
+2. Find the line:
+   ```python
+   SERIAL_PORT = 'COM3' 
+   ```
+   **Change 'COM3'** to the COM Port of your **Box Arduino** (from Step 2A).
+3. Select your game:
+   ```python
+   SELECTED_GAME = "F1" # or "ACC"
+   ```
+4. Save the file.
 
 ---
 
-## 7) Configure `sim_race_pro_script.py`
+## 🎮 Step 4: Game Settings (Information)
 
-Open the file and adjust the configuration block (near the top), e.g.:
+### F1 23 / 24 / 25
+Go to **Telemetry Settings** in the game menu:
+- **UDP Telemetry**: On
+- **UDP IP Address**: `127.0.0.1`
+- **UDP Port**: `20777`
+- **UDP Format**: `2023` (Select the newest year available)
 
-```python
-# Serial port to the Arduino that communicates with the PC
-SERIAL_PORT = 'COM6'   # <-- change to your actual COM port
-BAUD_RATE   = 115200
-
-# Feature toggles and tuning
-SEND_DATA            = True
-TX_RATE_HZ           = 20     # 20 Hz (every 50 ms)
-HANDBRAKE_ENABLED    = False
-MANUAL_TX_ENABLED    = False
-KEYBOARD_SIM_ENABLED = True
-
-# Steering mapping (wheel -> virtual gamepad)
-ANGLE_MIN            = -450.0
-ANGLE_MAX            =  450.0
-ANGLE_DEADZONE_DEG   = 0.5
-STEER_GAIN           = 3.5    # increase if you hit max stick too early/late
-```
-
-**What it does:**
-- Creates a **virtual Xbox controller** (via `vgamepad`)
-- Maps wheel angle to **left joystick**, throttle to **RT**, brake to **LT**
-- Sends control and status data to the **box Arduino** over serial
+### Assetto Corsa Competizione
+Just works automatically.
 
 ---
 
-## 8) Run the simulator
+## 🏁 Step 5: How to Run
 
-1. Ensure **both Arduinos** are powered via USB.
-2. In the project folder:
+1. Connect both USB cables to your PC.
+2. Double-click `run_sim.bat` (if created) OR run in terminal:
    ```powershell
    python sim_race_pro_script.py
    ```
-3. Expected logs (examples):
-   - `Virtual gamepad ready`
-   - `Serial open on COMxx @ 115200`
+3. You should see:
+   > Virtual gamepad ready
+   > SIM RACE BOX ver. 2.3.0
+   > F1 Reader started...
 
-If you see errors, check **Troubleshooting** below.
-
----
-
-## 9) Quick checks
-
-### 9.1 Find the correct COM port (Windows)
-- Open **Device Manager**, expand **Ports (COM & LPT)**
-- Plug/unplug the Arduino to see which **COM** appears/disappears
-
-### 9.2 Verify packages at once
-```powershell
-pip list | findstr /I "pyserial vgamepad keyboard"
-```
-
-### 9.3 Verify ViGEm (virtual controller)
-- When the script is running, open **Windows Game Controllers** and you should see an Xbox controller
+4. Launch your game and drive!
 
 ---
 
-## 10) Tuning tips
-
-- **Steering sensitivity**: increase `STEER_GAIN` if the virtual stick reaches full left/right too late; decrease if it saturates too early.
-- **Deadzone**: adjust `ANGLE_DEADZONE_DEG` to smooth small jitters around center.
-- **Handbrake / H-Pattern**: set `HANDBRAKE_ENABLED = True` or `MANUAL_TX_ENABLED = True` and calibrate thresholds (see comments in the script).
-
----
-
-## 11) Troubleshooting
-
-- **Virtual gamepad not detected**
-  - Install **ViGEmBus**, then **reboot**
-  - Ensure the script prints something like: `Virtual gamepad ready`
-
-- **Serial port errors**
-  - Wrong **COM** in `SERIAL_PORT`
-  - Port busy (another app open)
-  - Cable/board issue or mismatched `BAUD_RATE`
-
-- **Lag or instability**
-  - Lower `TX_RATE_HZ` (e.g., 10–15)
-  - Disable verbose logs
-  - Close other tools using the same COM port
-
----
-
-## 12) Data flow overview
-
-- **Arduino → PC (serial)**: wheel angle, pedals, buttons (and optional IMU gx/gy)
-- **PC**:
-  - Emulates a **virtual Xbox controller**
-  - Builds and sends control data frames
-- **PC → Arduino (box, serial)**: sends compact frame  
-  ```
-  gx-gy-gz-yaw-pitch-roll-speed-gear-rpm-oncurb-curbside-rumble-pwmsx-pwmdx\n
-  ```
-
----
-
-## 13) Support checklist (before asking for help)
-
-- Python 3.11/3.12 installed and on PATH
-- `pyserial`, `vgamepad`, `keyboard` installed
-- ViGEmBus installed and system restarted
-- Correct `SERIAL_PORT` set for the **box** Arduino
-
----
-
-**Enjoy your drive!**
+## ❓ Troubleshooting
+- **No Force Feedback?** Check if game telemetry is ON. Check "UDP Format" year.
+- **Display Blank?** Press the RESET button on the Wheel Arduino.
+- **"Access Denied" Error?** Close the Python script before trying to upload code to Arduino.
