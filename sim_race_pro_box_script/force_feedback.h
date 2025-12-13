@@ -8,6 +8,6 @@ extern const int pwm_floor;
 extern const int pwm_max;
 extern const int pwm_min;
 
-int proportionalControlBasic(float degrees, int acc, int brake, bool onlyWheel);
+int proportionalControlBasic(float degrees, int acc, int brake, int speed, int gx, int rumble, bool onlyWheel);
 
 #endif

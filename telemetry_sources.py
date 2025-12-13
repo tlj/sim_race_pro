@@ -29,26 +29,25 @@ class TelemetryFrame:
 
 
 # =========================
-# F1 24 — UDP reader
+# F1 23/24/25 — UDP reader
 # =========================
 class F1TelemetryReader:
     """
-    Minimal F1 24 UDP reader:
-    - Binds to 0.0.0.0:20777 (change port if needed).
-    - Parses Motion (id=0) for G-forces, yaw/pitch/roll.
-    - Parses Car Telemetry (id=6) for speed, throttle, brake, steer, gear, rpm, surface types.
-    Returns a TelemetryFrame with a best-effort curb detection and side estimate from lateral G.
+    F1 UDP reader (Supports 2023, 2024, 2025 formats):
+    - Binds to 0.0.0.0:20777.
+    - Expects UDP Format '2023' or newer in game settings.
+    - Header is 29 bytes (ver 2023+).
     """
     PACKET_ID_MOTION = 0
     PACKET_ID_TELEM  = 6
 
-    # Header: <HBBBBBQfIIBB  (matches your f1_telemetry_test.py)
+    # Header: <HBBBBBQfIIBB (29 bytes)
     HDR = struct.Struct("<HBBBBBQfIIBB")
 
-    # Car motion struct (60 bytes) — g_lat/g_lon/g_vert + yaw/pitch/roll at the end
+    # Car motion struct (60 bytes)
     CAR_MOTION = struct.Struct("<ffffffhhhhhhffffff")
 
-    # Car telemetry struct (60 bytes) — speed, throttle, steer, brake, gear, rpm, surface types, etc.
+    # Car telemetry struct (60 bytes)
     CAR_TELEM  = struct.Struct("<HfffBbHBBH4H4B4BH4f4B")
 
     def __init__(self, host: str = "0.0.0.0", port: int = 20777):
@@ -57,17 +56,24 @@ class F1TelemetryReader:
         self.player_idx = 0
         self._last_motion: dict = {}
         self._last_telem: dict = {}
+        self._format_detected = False
 
     def start(self) -> None:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(0.02)
         sock.bind(self.addr)
         self.sock = sock
+        print(f"F1 Reader started on {self.addr}. Waiting for F1 23/24/25 packets...", flush=True)
 
     def _parse_header(self, buf: bytes) -> Tuple[int, int, int]:
         (packetFormat, gameYear, gameMajor, gameMinor,
          packetVersion, packetId, sessionUID, sessionTime,
          frameId, overallFrameId, playerCarIndex, secondaryIndex) = self.HDR.unpack_from(buf, 0)
+        
+        if not self._format_detected:
+            print(f"F1 Packet Detected! Year: {packetFormat} (Game: {gameYear})", flush=True)
+            self._format_detected = True
+            
         return packetId, playerCarIndex, self.HDR.size
 
     def read_frame(self, timeout_s: float = 0.05) -> Optional[TelemetryFrame]:
@@ -75,16 +81,22 @@ class F1TelemetryReader:
             return None
         t0 = time.time()
 
-        # Read multiple packets within timeout to refresh both Motion and Telemetry
+        # Read multiple packets within timeout
         while time.time() - t0 < timeout_s:
             try:
                 buf, _ = self.sock.recvfrom(2048)
             except socket.timeout:
                 break
+                
+            # Check for 2023+ Header Size (29 bytes)
+            # If user uses "2022" format (24 bytes), this check fails intentionally to avoid struct errors
             if len(buf) < self.HDR.size:
                 continue
 
-            packetId, playerIdx, base = self._parse_header(buf)
+            try:
+                packetId, playerIdx, base = self._parse_header(buf)
+            except struct.error:
+                continue # Skip malformed
 
             if packetId == self.PACKET_ID_MOTION:
                 start = base + playerIdx * self.CAR_MOTION.size
@@ -103,7 +115,6 @@ class F1TelemetryReader:
                     brake = float(data[3])
                     gear = int(data[5])
                     rpm = int(data[6])
-                    # surface types (last 4 bytes): 1=kerb in most docs
                     surfaces = data[-4:]
                     on_curb = any(s == 1 for s in surfaces)
 
@@ -123,7 +134,7 @@ class F1TelemetryReader:
             return None
 
         return TelemetryFrame(
-            game="F1 24",
+            game=f"F1 20{self._last_telem.get('year', 'xx')}", # Generic
             speed_kmh=self._last_telem["speed_kmh"],
             gear=self._last_telem["gear"],
             throttle=self._last_telem["throttle"],

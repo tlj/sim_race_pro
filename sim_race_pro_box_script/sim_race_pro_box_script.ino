@@ -3,7 +3,7 @@
 #include "motor_control.h"
 #include "force_feedback.h"
 
-const char *FW_VERSION = "ver. 1.1.0";
+const char *FW_VERSION = "ver. 2.0.0";
 
 enum SIM_SETUP
 {
@@ -21,7 +21,7 @@ bool PEDALS_CLUTCH = false;
 bool HANDBRAKE_ENABLED = false;
 bool MANUAL_TX_ENABLED = false;
 
-bool PEDALS_VIBRATION_ENABLED = false;
+bool PEDALS_VIBRATION_ENABLED = true;
 
 SoftwareSerial link(5, 6);
 
@@ -71,29 +71,36 @@ bool extractResetBit(const char *s)
   int len = 0;
   while (s[len] != '\0')
     len++;
-  for (int i = len - 1; i >= 0; --i)
+
+  // Find last dash
+  for (int i = len - 1; i >= 0; i--)
   {
-    if (s[i] == '0')
+    if (s[i] == '-')
+    {
+      // The character immediately after the last dash is the reset bit
+      if (i + 1 < len)
+      {
+        return (s[i + 1] == '1');
+      }
       return false;
-    if (s[i] == '1')
-      return true;
+    }
   }
   return false;
 }
 
 bool isValidMessage(const char *msg)
 {
-  int semiCount = 0;
+  int dashCount = 0;
   int len = 0;
   while (msg[len] != '\0')
   {
-    if (msg[len] == ';')
-      semiCount++;
+    if (msg[len] == '-')
+      dashCount++;
     len++;
     if (len > MAX_CHARS)
       return false;
   }
-  return (semiCount == 4);
+  return (dashCount == 16);
 }
 
 char readHandbrakeBit()
@@ -104,25 +111,19 @@ char readHandbrakeBit()
 
 void setup()
 {
-  Serial.begin(9600);
-  link.begin(9600);
+  Serial.begin(115200);
+  link.begin(38400);
 
   strcpy(slaveBuffer, "WAIT");
 
   if (sim_setup == BOX_FULL)
-  {
     setupMotor();
-  }
 
   if (sim_setup == BOX_FULL || sim_setup == BOX_MEDIUM)
-  {
     zeroOffset = myEnc.read();
-  }
 
   if (sim_setup == BOX_BUDGET)
-  {
     pinMode(POT_PIN, INPUT);
-  }
 
   if (ONLY_WHEEL == false)
   {
@@ -132,15 +133,11 @@ void setup()
     BRK_OFFSET = analogRead(BRK_PIN);
 
     if (PEDALS_CLUTCH == true)
-    {
       pinMode(CLUTCH_PIN, INPUT);
-    }
   }
 
   if (HANDBRAKE_ENABLED)
-  {
     pinMode(HANDBRAKE_PIN, INPUT_PULLUP);
-  }
 
   if (MANUAL_TX_ENABLED)
   {
@@ -157,28 +154,35 @@ void setup()
 
 void loop()
 {
-  readSerialData(Serial, pcBuffer, pcIndex, pcMsgReady);
-  readSerialData(link, slaveRxBuffer, slaveIndex, slaveMsgReady);
-
-  if (slaveMsgReady)
+  // 1. WAIT FOR WHEEL MESSAGE (Blocking)
+  while(link.available()) link.read(); // Drain old data
+  
+  slaveMsgReady = false;
+  // We need to keep reading until we get a full message
+  while (!slaveMsgReady)
   {
-    if (isValidMessage(slaveRxBuffer))
+    if (link.available())
     {
-      strcpy(slaveBuffer, slaveRxBuffer);
+       readSerialData(link, slaveRxBuffer, slaveIndex, slaveMsgReady);
     }
-
-    bool resetBit = extractResetBit(slaveBuffer);
-    if (resetBit && !lastResetBit)
-    {
-      zeroOffset = (sim_setup != BOX_BUDGET) ? myEnc.read() : 0;
-      ACC_OFFSET = (!ONLY_WHEEL) ? analogRead(ACC_PIN) : 0;
-      BRK_OFFSET = (!ONLY_WHEEL) ? analogRead(BRK_PIN) : 0;
-    }
-    lastResetBit = resetBit;
-    slaveMsgReady = false;
-    slaveIndex = 0;
   }
 
+  // 2. PROCESS WHEEL DATA
+  if (isValidMessage(slaveRxBuffer))
+    strcpy(slaveBuffer, slaveRxBuffer);
+
+  bool resetBit = extractResetBit(slaveBuffer);
+
+  if (resetBit && !lastResetBit)
+  {
+    zeroOffset = (sim_setup != BOX_BUDGET) ? myEnc.read() : 0;
+    ACC_OFFSET = (!ONLY_WHEEL) ? analogRead(ACC_PIN) : 0;
+    BRK_OFFSET = (!ONLY_WHEEL) ? analogRead(BRK_PIN) : 0;
+  }
+
+  lastResetBit = resetBit;
+  
+  // 3. READ LOCAL SENSORS
   long ticks = (sim_setup != BOX_BUDGET) ? constrain(myEnc.read() - zeroOffset, -maxTicks, maxTicks) : 0;
   float degrees = (sim_setup != BOX_BUDGET) ? (ticks / 2400.0f) * 360.0f : 0.0f;
 
@@ -190,49 +194,102 @@ void loop()
   acc = (acc < ACC_DEADZONE || ONLY_WHEEL) ? 0 : acc;
   brk = (brk < BRK_DEADZONE || ONLY_WHEEL) ? 0 : brk;
 
-  proportionalControlBasic(degrees, acc, brk, ONLY_WHEEL);
 
-  static unsigned long lastTx = 0;
-  if (millis() - lastTx >= 70)
+
+  char hbBit = (HANDBRAKE_ENABLED) ? readHandbrakeBit() : '0';
+  int gx255 = (MANUAL_TX_ENABLED) ? map(analogRead(MANUAL_TX_POT1_PIN), 0, 1023, 0, 255) : 0;
+  int gy255 = (MANUAL_TX_ENABLED) ? map(analogRead(MANUAL_TX_POT2_PIN), 0, 1023, 0, 255) : 0;
+
+  // 4. SEND TO PC
+  Serial.print(degrees, 1);
+  Serial.print('-');
+  Serial.print(acc);
+  Serial.print('-');
+  Serial.print(brk);
+  Serial.print('-');
+  Serial.print(slaveBuffer);
+  Serial.print('-');
+  Serial.print(hbBit);
+  Serial.print('-');
+  Serial.print(gx255);
+  Serial.print('-');
+  Serial.println(gy255);
+  Serial.flush(); // Ensure tx is done
+
+  // 5. WAIT FOR PC RESPONSE (Blocking)
+  while(Serial.available()) Serial.read(); // Drain old data
+  
+  pcMsgReady = false;
+  while (!pcMsgReady)
   {
-    lastTx = millis();
-
-    char hbBit = (HANDBRAKE_ENABLED) ? readHandbrakeBit() : '0';
-    int gx255 = (MANUAL_TX_ENABLED) ? map(analogRead(MANUAL_TX_POT1_PIN), 0, 1023, 0, 255) : 0;
-    int gy255 = (MANUAL_TX_ENABLED) ? map(analogRead(MANUAL_TX_POT2_PIN), 0, 1023, 0, 255) : 0;
-
-    Serial.print(degrees, 1);
-    Serial.print('-');
-    Serial.print(acc);
-    Serial.print('-');
-    Serial.print(brk);
-    Serial.print('-');
-    Serial.print(slaveBuffer);
-    Serial.print('-');
-    Serial.print(hbBit);
-    Serial.print('-');
-    Serial.print(gx255);
-    Serial.print('-');
-    Serial.println(gy255);
-
-    link.print(degrees, 1);
-    link.print('-');
-    link.print(acc);
-    link.print('-');
-    link.print(brk);
-    link.print('-');
-
-    if (pcMsgReady)
+    if (Serial.available())
     {
-      link.println(pcBuffer);
-      pcMsgReady = false;
-      pcIndex = 0;
-    }
-    else
-    {
-      link.println("NONE");
+      readSerialData(Serial, pcBuffer, pcIndex, pcMsgReady);
     }
   }
+
+  // Parse PC Buffer for FFB
+  // Format from PC: rpm;gear;speed;gx;rumble;rpm_pct\n
+  char tempBuf[MAX_CHARS];
+  strcpy(tempBuf, pcBuffer);
+
+  // Default values
+  int val_speed = 0; 
+  int val_gx = 127;
+  int val_rumble = 0;
+  
+  // Pointers for Wheel Message
+  char* w_gear = "N";
+  char* w_speed = "0";
+  char* w_rpm_pct = "0";
+
+  char* t_rpm = strtok(tempBuf, ";");
+  char* t_gear = strtok(NULL, ";");
+  char* t_speed = strtok(NULL, ";");
+  char* t_gx = strtok(NULL, ";");
+  char* t_rumble = strtok(NULL, ";");
+  char* t_rpm_pct = strtok(NULL, ";");
+
+  if (t_gear && t_speed && t_gx && t_rumble && t_rpm_pct) {
+     val_speed = atoi(t_speed);
+     val_gx = atoi(t_gx);
+     val_rumble = atoi(t_rumble);
+     
+     w_gear = t_gear;
+     w_speed = t_speed;
+     w_rpm_pct = t_rpm_pct;
+  }
+
+  // 6. APPLY FORCE FEEDBACK (After PC Data)
+  proportionalControlBasic(degrees, acc, brk, val_speed, val_gx, val_rumble, ONLY_WHEEL);
+
+  // 6.5 PEDAL VIBRATION
+  if (PEDALS_VIBRATION_ENABLED)
+  {
+      // Vibrate if Game Rumble (Curbs/Collision) OR (Brake > 80% for ABS feel)
+      bool rumbleActive = (val_rumble > 0);
+      bool absActive = (brk > 200); // approx 80%
+
+      digitalWrite(VIB_PIN, (rumbleActive || absActive) ? HIGH : LOW); // Brake Pedal (Curbs + ABS)
+      digitalWrite(VIB2_PIN, rumbleActive ? HIGH : LOW); // Acc Pedal (Curbs only)
+  }
+
+  // 7. SEND TO WHEEL (Simplified: gear;speed;rpm_pct)
+  link.print(degrees, 1);
+  link.print('|');
+  link.print(acc);
+  link.print('|');
+  link.print(brk);
+  link.print('|');
+  
+  // Construct simplified message on the fly to save memory
+  link.print(w_gear);
+  link.print(';');
+  link.print(w_speed);
+  link.print(';');
+  link.println(w_rpm_pct);
+  
+  link.flush(); // Ensure tx is done
 }
 
 void readSerialData(Stream &source, char *buffer, byte &idx, bool &isReady)

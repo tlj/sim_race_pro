@@ -7,7 +7,7 @@
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-const char *FW_VERSION = "ver. 1.0.0";
+const char *FW_VERSION = "ver. 2.0.0";
 
 const char *HEADER_TEXT = "SIM RACE PRO";
 const uint8_t HEADER_SIZE = 1;
@@ -26,8 +26,14 @@ SoftwareSerial link(2, 3);
 int lastActive = -1;
 unsigned long lastFrameMs = 0;
 
-bool enableSerialTX = false;
+bool enableSerialTX = true;
 bool enableSerialRX = true;
+
+const byte MAX_CHARS = 128;
+
+char masterRxBuffer[MAX_CHARS];
+byte masterIndex = 0;
+bool masterMsgReady = false;
 
 void scanMatrix(bool keyStates[16], uint8_t *firstPressed)
 {
@@ -59,25 +65,6 @@ void scanMatrix(bool keyStates[16], uint8_t *firstPressed)
   }
 }
 
-void sendMatrixState(bool keyStates[16], bool resetPressed)
-{
-    for (uint8_t i = 0; i < 16; i++)
-    {
-      link.print(keyStates[i] ? '1' : '0');
-      link.print('-');
-
-      if (enableSerialTX)
-      {
-        Serial.print(keyStates[i] ? '1' : '0');
-        Serial.print('-');
-      }
-    }
-
-    link.println(resetPressed ? '1' : '0');
-
-    if (enableSerialTX)
-      Serial.print(resetPressed ? '1' : '0');
-}
 
 void setup()
 {
@@ -97,18 +84,28 @@ void setup()
   for (uint8_t r = 0; r < 4; r++)
     pinMode(rowPins[r], INPUT);
 
-  link.begin(9600);
-  Serial.begin(9600);
+  link.begin(38400);
+  Serial.begin(115200);
 
   Wire.begin();
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-
-  display.setTextSize(2);
+  
+  // Custom Splash Screen
+  display.clearDisplay(); // clear adafruit logo
   display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 0);
-  display.println("READY");
+  
+  display.setTextSize(2);
+  display.setCursor(10, 10);
+  display.println("SIM RACE");
+  display.setCursor(40, 30);
+  display.println("PRO");
+  
+  display.setTextSize(1);
+  display.setCursor(35, 50);
+  display.println(FW_VERSION);
+  
   display.display();
-  delay(1000);
+  delay(2000); // Show splash for 2 seconds
 
   lastActive = 0;
 
@@ -117,15 +114,44 @@ void setup()
 
 void loop()
 {
+  // READ BTNs VALUES
   bool keyStates[16];
   uint8_t firstPressed = 0;
   scanMatrix(keyStates, &firstPressed);
 
   bool resetPressed = (digitalRead(RESET_PIN) == LOW);
-
-  if (link.available())
+  
+  // SEND BTNs VALUES
+  for (uint8_t i = 0; i < 16; i++)
   {
-    static char rxBuf[48];
+    link.print(keyStates[i] ? '1' : '0');
+    link.print('-');
+
+    if (enableSerialTX)
+    {
+      Serial.print(keyStates[i] ? '1' : '0');
+      Serial.print('-');
+    }
+  }
+
+  link.println(resetPressed ? '1' : '0');
+
+  if (enableSerialTX)
+    Serial.print(resetPressed ? '1' : '0');
+
+  // WAIT UNTIL THE INFO ARE READY
+
+  // READ BOX VALUES
+  while(link.available()) link.read(); // Drain old data
+  
+  bool responseReceived = false;
+  uint32_t startWait = millis();
+  
+  while (!responseReceived && (millis() - startWait < 500))
+  {
+    if (link.available())
+    {
+    static char rxBuf[50];
     static uint8_t rxLen = 0;
 
     static float lastDegrees = 0.0f;
@@ -143,10 +169,10 @@ void loop()
           rxLen--;
         rxBuf[rxLen] = '\0';
 
-        char *p1 = strtok(rxBuf, "-");
-        char *p2 = strtok(NULL, "-");
-        char *p3 = strtok(NULL, "-");
-        char *p4 = strtok(NULL, "-");
+        char *p1 = strtok(rxBuf, "|");
+        char *p2 = strtok(NULL, "|");
+        char *p3 = strtok(NULL, "|");
+        char *p4 = strtok(NULL, "|");
 
         if (p1 && p2 && p3)
         {
@@ -157,8 +183,6 @@ void loop()
           lastDegrees = degrees;
           lastAcc = acc;
           lastBrk = brk;
-
-
 
           if (enableSerialRX)
           {
@@ -185,7 +209,7 @@ void loop()
           char current_gear[4] = "N";
           int current_speed = 0;
           int current_rpm_pct = 0;
-          
+
           // Use data from Box (p1, p2, p3)
           int current_thr = map(acc, 0, 255, 0, 100);
           int current_brk = map(brk, 0, 255, 0, 100);
@@ -193,14 +217,12 @@ void loop()
 
           if (p4 && strcmp(p4, "NONE") != 0)
           {
-            char *t_rpm = strtok(p4, ";");
-            char *t_gear = strtok(NULL, ";");
+            // Valid Packet: gear;speed;rpm_pct
+            char *t_gear = strtok(p4, ";");
             char *t_speed = strtok(NULL, ";");
-            char *t_gx = strtok(NULL, ";");
-            char *t_rumble = strtok(NULL, ";");
             char *t_rpm_pct = strtok(NULL, ";");
 
-            if (t_rpm && t_gear && t_speed && t_rpm_pct)
+            if (t_gear && t_speed && t_rpm_pct)
             {
               strncpy(current_gear, t_gear, 3);
               current_gear[3] = '\0';
@@ -210,71 +232,88 @@ void loop()
           }
 
           // Only update display if something changed
-          if (strcmp(current_gear, prev_gear) != 0 || 
-              current_speed != prev_speed || 
+          if (strcmp(current_gear, prev_gear) != 0 ||
+              current_speed != prev_speed ||
               current_rpm_pct != prev_rpm_pct ||
               current_thr != prev_thr ||
               current_brk != prev_brk ||
               current_ang != prev_ang)
           {
-              // Update previous values
-              strcpy(prev_gear, current_gear);
-              prev_speed = current_speed;
-              prev_rpm_pct = current_rpm_pct;
-              prev_thr = current_thr;
-              prev_brk = current_brk;
-              prev_ang = current_ang;
+            // Update previous values
+            strcpy(prev_gear, current_gear);
+            prev_speed = current_speed;
+            prev_rpm_pct = current_rpm_pct;
+            prev_thr = current_thr;
+            prev_brk = current_brk;
+            prev_ang = current_ang;
 
-              // Update LEDs
-              digitalWrite(ledPins[0], (current_rpm_pct >= 50) ? HIGH : LOW);
-              digitalWrite(ledPins[1], (current_rpm_pct >= 75) ? HIGH : LOW);
-              digitalWrite(ledPins[2], (current_rpm_pct >= 90) ? HIGH : LOW);
+            // Hybrid LED Logic
+            // If we have RPM from game (Sim Mode), use it.
+            // If RPM is 0 (Legacy Mode / Idle), map Throttle to LEDs for visual feedback.
+            int ledValue = current_rpm_pct;
+            if (ledValue == 0) {
+               ledValue = current_thr;
+            }
 
-              // Draw Display
-              display.clearDisplay();
+            // Update LEDs (Green 50%, Yellow 75%, Blue 85% - easier to see)
+            digitalWrite(ledPins[0], (ledValue >= 50) ? HIGH : LOW);
+            digitalWrite(ledPins[1], (ledValue >= 75) ? HIGH : LOW);
+            digitalWrite(ledPins[2], (ledValue >= 85) ? HIGH : LOW);
 
-              // Top Info Row
-              display.setTextSize(1);
-              
-              // Brake (Top Left)
-              display.setCursor(0, 0);
-              display.print(current_brk);
+            // Draw Display
+            display.clearDisplay();
+            display.setTextSize(1);
+            
+            // Top Row: B:xxx (Left)   T:xxx (Right)
+            display.setCursor(0, 0); 
+            display.print(F("B:")); 
+            display.print(current_brk);
 
-              // Angle (Top Center)
-              display.setCursor(54, 0);
-              display.print(current_ang);
+            // Right align Throttle (approx)
+            // T:100 is 5 chars = 30px. 128-30=98
+            display.setCursor(90, 0); 
+            display.print(F("T:")); 
+            if (current_thr < 100) display.print(' ');
+            if (current_thr < 10) display.print(' ');
+            display.print(current_thr);
 
-              // Throttle (Top Right)
-              // Adjust cursor based on digits to align right
-              int thr_x = 110;
-              if(current_thr < 10) thr_x = 122;
-              else if(current_thr < 100) thr_x = 116;
-              display.setCursor(thr_x, 0);
-              display.print(current_thr);
+            // RPM Bar
+            int barWidth = map(current_rpm_pct, 0, 100, 0, SCREEN_WIDTH);
+            display.fillRect(0, 10, barWidth, 4, SSD1306_WHITE);
 
-              // RPM Bar (Moved down)
-              int barWidth = map(current_rpm_pct, 0, 100, 0, SCREEN_WIDTH);
-              display.fillRect(0, 12, barWidth, 6, SSD1306_WHITE);
+            // Gear (Center)
+            display.setTextSize(4);
+            int gX = 52;
+            if (current_gear[0] == 'N') gX = 52;
+            else if (current_gear[0] == '1') gX = 54;
+            else if (strcmp(current_gear, "10") == 0) gX = 40;
+            
+            display.setCursor(gX, 16); // Moved up to 16
+            display.print(current_gear);
 
-              // Gear (Large)
-              display.setTextSize(5);
-              display.setCursor(46, 24);
-              display.print(current_gear);
+            // Speed (Bottom Left)
+            display.setTextSize(2);
+            display.setCursor(0, 48); // Moved up to 48 (fits 14px height)
+            if (current_speed < 100) display.print(' ');
+            if (current_speed < 10) display.print(' ');
+            display.print(current_speed);
+            
+            display.setTextSize(1);
+            display.setCursor(42, 55); // Next to speed
+            display.print(F("kmh"));
 
-              // Speed (Bottom)
-              display.setTextSize(2);
-              display.setCursor(0, 48);
-              display.print(current_speed);
-              display.setTextSize(1);
-              display.print(" kmh");
+            // Angle (Bottom Right)
+            // Align "A:xxx" to right.
+            display.setCursor(94, 55);
+            display.print(F("A:"));
+            display.print(current_ang);
 
-              display.display();
+            display.display();
           }
-
-          sendMatrixState(keyStates, resetPressed);
         }
 
         rxLen = 0;
+        responseReceived = true;
       }
       else
       {
@@ -282,6 +321,31 @@ void loop()
           rxBuf[rxLen++] = c;
         else
           rxLen = 0;
+      }
+    }
+  }
+  }
+}
+
+void readSerialData(Stream &source, char *buffer, byte &idx, bool &isReady)
+{
+  while (source.available() > 0 && !isReady)
+  {
+    char rc = source.read();
+
+    if (rc == '\n')
+    {
+      buffer[idx] = '\0';
+      isReady = true;
+      idx = 0;
+    }
+
+    else if (rc != '\r')
+    {
+      if (idx < MAX_CHARS - 1)
+      {
+        buffer[idx] = rc;
+        idx++;
       }
     }
   }
