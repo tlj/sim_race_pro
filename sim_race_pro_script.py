@@ -132,7 +132,7 @@ class SimRaceLogic:
         self.last_hb_bit = 0
         
         # Test Mode Variables (for GUI display)
-        self.test_buttons = [0] * 16  # Button states array
+        self.test_buttons = [0] * 17  # Button states array
         self.test_gx = 127  # Shifter X position (0-255, 127=center)
         self.test_gy = 127  # Shifter Y position (0-255, 127=center)
         self.test_handbrake = 0
@@ -272,7 +272,7 @@ class SimRaceLogic:
         self.last_brake = 0
         self.last_angle = 0
         self.last_pressed_btn_idx = -1
-        self.test_buttons = [0] * 16
+        self.test_buttons = [0] * 17
         self.test_gx = 127
         self.test_gy = 127
         self.test_handbrake = 0
@@ -626,14 +626,16 @@ class SimRaceGUI:
         btn_frame = ttk.LabelFrame(parent, text="Buttons (press to test)", padding=10)
         btn_frame.pack(fill=tk.X, pady=5)
         
-        # Create 4x4 grid of button indicators
+        # Create grid of button indicators (17 buttons: 4x4 + 1)
         self.test_btn_indicators = []
-        for row in range(4):
+        for row in range(5):
             row_frame = ttk.Frame(btn_frame)
             row_frame.pack(fill=tk.X)
-            for col in range(4):
+            # First 4 rows have 4 buttons, last row has 1 button
+            cols_in_row = 4 if row < 4 else 1
+            for col in range(cols_in_row):
                 btn_idx = row * 4 + col
-                lbl = tk.Label(row_frame, text=f"{btn_idx}", width=6, height=2, 
+                lbl = tk.Label(row_frame, text=f"{btn_idx}", width=6, height=2,
                               bg="#404040", fg="white", relief="raised", font=("Arial", 10, "bold"))
                 lbl.pack(side=tk.LEFT, padx=2, pady=2)
                 self.test_btn_indicators.append(lbl)
