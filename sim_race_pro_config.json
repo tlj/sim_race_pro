@@ -1,0 +1,24 @@
+{
+  "button_map": {
+    "0": "LEFT_SHOULDER",
+    "1": "LEFT_THUMB",
+    "2": "RIGHT_THUMB",
+    "3": "RIGHT_SHOULDER",
+    "4": "DPAD_DOWN",
+    "5": "DPAD_UP",
+    "6": "DPAD_LEFT",
+    "7": "DPAD_RIGHT",
+    "8": "DPAD_DOWN",
+    "9": "DPAD_UP",
+    "10": "DPAD_LEFT",
+    "11": "DPAD_RIGHT",
+    "12": "X",
+    "13": "B",
+    "15": "A",
+    "14": "Y",
+    "16": "START"
+  },
+  "selected_port": "COM4",
+  "selected_game": "ACC",
+  "manual_gear_enabled": false
+}
