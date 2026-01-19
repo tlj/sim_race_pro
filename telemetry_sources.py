@@ -233,6 +233,8 @@ class ACCTelemetryReader:
         if self.asm:
             try:
                 self.asm.close()
+            except Exception:
+                pass
 
 # =========================
 # Forza Horizon/Motorsport — UDP reader
