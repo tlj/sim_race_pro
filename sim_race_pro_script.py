@@ -46,20 +46,23 @@ MAX_RPM_MAP = {Game.F1: 13500, Game.ACC: 9000, Game.FORZA: 8000}
 
 # Default Button Map (Arduino Index -> Xbox Button)
 DEFAULT_BUTTON_MAP = {
-    0: "START", 
-    1: "A", 
-    2: "X", 
+    0: "START",
+    1: "A",
+    2: "X",
     3: "DPAD_RIGHT",
-    4: "DPAD_LEFT", 
-    5: "DPAD_UP", 
-    6: "DPAD_DOWN", 
+    4: "DPAD_LEFT",
+    5: "DPAD_UP",
+    6: "DPAD_DOWN",
     7: "BACK",
-    8: "LEFT_THUMB", 
+    8: "LEFT_THUMB",
     9: "RIGHT_THUMB",
-    10: "LEFT_SHOULDER", 
-    11: "RIGHT_SHOULDER", 
-    12: "B", 
-    13: "Y", 
+    10: "LEFT_SHOULDER",
+    11: "RIGHT_SHOULDER",
+    12: "B",
+    13: "Y",
+    14: "NONE",
+    15: "NONE",
+    16: "NONE",
 }
 
 # Supported Xbox Buttons for Dropdown
@@ -415,9 +418,9 @@ class SimRaceGUI:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
-        # Create Binding Rows (0-15)
+        # Create Binding Rows (0-16)
         self.bind_widgets = []
-        for i in range(16):
+        for i in range(17):
             row = ttk.Frame(self.scrollable_frame)
             row.pack(fill=tk.X, pady=2)
             
