@@ -143,8 +143,19 @@ class SimRaceLogic:
         if _VG_AVAILABLE:
             try:
                 self.gamepad = vg.VX360Gamepad()
+                # Initialize with neutral state to ensure proper OS registration
+                self.gamepad.left_joystick(x_value=0, y_value=0)
+                self.gamepad.right_trigger(value=0)
+                self.gamepad.left_trigger(value=0)
+                self.gamepad.update()
+                print("✓ Virtual Xbox 360 controller created successfully")
             except Exception as e:
-                print(f"Error creating gamepad: {e}")
+                print(f"✗ Error creating gamepad: {e}")
+                print("  Make sure ViGEmBus driver is installed and running")
+                self.gamepad = None  # Ensure it's None on failure
+        else:
+            print("✗ vgamepad module not available - Xbox controller will NOT be created")
+            print("  Install with: pip install vgamepad")
 
     def start(self):
         if self.running: return
@@ -934,10 +945,14 @@ class SimRaceGUI:
 # MAIN
 # ==============================================================================
 if __name__ == "__main__":
+    print("="*60)
+    print(f"Sim Race Pro v{VERSION}")
+    print("="*60)
+
     # Create Logic
     logic = SimRaceLogic()
     logic.start()
-    
+
     # Create GUI
     try:
         root = tk.Tk()
